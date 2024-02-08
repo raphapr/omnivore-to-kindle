@@ -2,8 +2,10 @@ import epub from "epub-gen-memory";
 import { gql, GraphQLClient } from "graphql-request";
 import sanitizeHtml from "sanitize-html";
 import nodemailer from "nodemailer";
+import { homedir } from 'os';
 import * as dotenv from 'dotenv';
-import os from 'os';
+import fetch from 'node-fetch';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -23,8 +25,8 @@ const config = {
   addLabelsInContent: false,
   addArticleLinkInContent: true,
   allowImages: true,
-  attachmentPath: `${os.homedir()}/Downloads/${currentDate}.epub`,
-  maxArticleCount: 5, //,100 // itemsToFetch
+  attachmentPath: `${homedir()}/Downloads/${currentDate}.epub`,
+  maxArticleCount: 5,
   ignoredLabels: ["pdf"],
   ignoredLinks: ["https://www.youtu", "https://youtu"],
 };
@@ -40,7 +42,7 @@ if (!OMNIVORE_API_KEY) {
     "❌ Get a token following instructions on: https://docs.omnivore.app/integrations/api.html#getting-an-api-token",
   );
   console.log("❌ When you have a token, insert it as value for 'token' field in 'config.json' file");
-  //   Deno.exit(1);
+  process.exit(1);
 }
 
 const graphQLClient = new GraphQLClient(OMNIVORE_ENDPOINT, {
@@ -49,7 +51,7 @@ const graphQLClient = new GraphQLClient(OMNIVORE_ENDPOINT, {
   },
 });
 
-function sendEmail(attachmentPath: string): void {
+async function sendEmail(attachmentPath: string): Promise<void> {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -63,7 +65,7 @@ function sendEmail(attachmentPath: string): void {
     to: KINDLE_EMAIL_ADDRESS,
     subject: `Omnivore Latest Articles for ${currentDate}`,
     text: "Please see your epub attached",
-    attachments: [{ path: attachmentPath }] // Attachments
+    attachments: [{ path: attachmentPath }]
   };
 
   transporter.sendMail(mailOptions, (error, info) => {
@@ -75,9 +77,9 @@ function sendEmail(attachmentPath: string): void {
   });
 }
 
-function checkForUpdates() {
-  const response = fetch("https://api.github.com/repos/agrmohit/omnivore-epub/tags");
-  const tags = response.json();
+async function checkForUpdates() {
+  const response = await fetch("https://api.github.com/repos/agrmohit/omnivore-epub/tags");
+  const tags = await response.json();
 
   if (tags[0].name !== currentVersion) {
     console.log("ℹ  New update available");
@@ -112,7 +114,7 @@ async function getUnreadArticles(): Promise<any[]> {
     }
   `;
 
-  const data = graphQLClient.request(query);
+  const data = await graphQLClient.request(query);
 
   return data.search.edges.map((e: any) => {
     if (e.node.labels) {
@@ -133,7 +135,7 @@ async function getArticle(slug: string): Promise<any> {
     }
   }`;
 
-  const data = graphQLClient.request(query);
+  const data = await graphQLClient.request(query);
 
   let allowedTags: string[];
   if (config.allowImages) {
@@ -161,7 +163,7 @@ async function getArticle(slug: string): Promise<any> {
 
 async function makeMagazine(): Promise<void> {
   console.log("〰️ getting article list");
-  const articles = getUnreadArticles();
+  const articles = await getUnreadArticles();
   console.log("🤖 done");
 
   const chapters = [];
@@ -169,7 +171,7 @@ async function makeMagazine(): Promise<void> {
   for (const article of articles) {
     if (!article.isArchived) {
       console.log(`🌐 fetching ${article.title}`);
-      let content = (getArticle(article.slug)).content;
+      let content = (await getArticle(article.slug)).content;
 
       if (article.labelsArray) {
         if (
@@ -199,7 +201,7 @@ async function makeMagazine(): Promise<void> {
   }
   console.log('Done fetching content for articles... Writing ePub file... Please wait.');
 
-  const fileBuffer = epub.default(
+  const fileBuffer = await epub(
     {
       title: config.title,
       author: config.author,
@@ -211,9 +213,14 @@ async function makeMagazine(): Promise<void> {
   );
 
   console.log("📚 Successfully created ebook");
-  writeFile(config.attachmentPath, fileBuffer);
-
-  sendEmail(config.attachmentPath);
+  fs.writeFile(config.attachmentPath, fileBuffer, (err) => {
+    if (err) {
+      console.error('Error writing epub file:', err);
+    } else {
+      console.log('Epub file written successfully.');
+      sendEmail(config.attachmentPath);
+    }
+  });
 }
 
 checkForUpdates();

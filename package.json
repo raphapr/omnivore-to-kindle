@@ -1,7 +1,7 @@
 {
-  "name": "omnivore-epub",
+  "name": "omnivore-to-kindle",
   "version": "0.0.1",
-  "description": "Create EPUB with articles from Omnivore",
+  "description": "Send articles from Omnivore to Kindle",
   "author": "Raphael Ribeiro",
   "keywords": [
     "omnivore",
